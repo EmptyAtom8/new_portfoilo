@@ -1,0 +1,86 @@
+name: portfolio
+
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      LOG_DIRECTORY: /app/logs
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+      VISIT_RATE_LIMIT: ${VISIT_RATE_LIMIT:-30}
+      CV_PATH: /app/dist/assets/JHL_Software_Engineer_CV  .pdf
+      CV_DOWNLOAD_NAME: Jiahe-Li-Software-Engineer-CV.pdf
+    expose:
+      - "3000"
+    volumes:
+      - visitor_logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - internal
+
+  nginx:
+    build:
+      context: ./frontend/new_portfoilo_frontend
+    environment:
+      DOMAIN: ${DOMAIN:-example.com}
+      WWW_DOMAIN: www.${DOMAIN:-example.com}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+      - nginx_logs:/var/log/nginx
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - internal
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $$!; done
+    restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  letsencrypt:
+  certbot_www:
+  visitor_logs:
+  nginx_logs:
